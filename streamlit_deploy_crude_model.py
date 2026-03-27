@@ -34,10 +34,8 @@ option = st.radio(
     ["Use Default Dataset", "Upload Your Own CSV"]
 )
 
-df = None
-
 # -------------------------
-# DEFAULT DATA
+# LOAD DATA
 # -------------------------
 if option == "Use Default Dataset":
     DATA_PATH = Path("Crude oil.csv")
@@ -49,9 +47,6 @@ if option == "Use Default Dataset":
     df = pd.read_csv(DATA_PATH)
     st.success("✅ Default dataset loaded")
 
-# -------------------------
-# UPLOAD DATA
-# -------------------------
 else:
     uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
 
@@ -76,19 +71,16 @@ except:
     st.stop()
 
 # -------------------------
-# DATA PREVIEW
+# PREVIEW
 # -------------------------
 st.subheader("📊 Historical Data Sample")
 st.dataframe(df.head(10), use_container_width=True)
 
-# -------------------------
-# HISTORICAL CHART
-# -------------------------
 st.subheader("📈 Historical Closing Prices")
 st.line_chart(series)
 
 # -------------------------
-# FORECAST SECTION
+# FORECAST
 # -------------------------
 st.subheader("🔮 Forecast Future Prices")
 
@@ -108,7 +100,7 @@ if generate:
     lags = 5
 
     # -------------------------
-    # DIRECTIONAL ACCURACY (HORIZON-DEPENDENT)
+    # DIRECTIONAL ACCURACY (NEW LOGIC)
     # -------------------------
     train = series[:-horizon]
     test = series[-horizon:]
@@ -117,50 +109,41 @@ if generate:
     preds = []
 
     for _ in range(len(test)):
-        if len(history) >= lags:
-            recent = np.array(history[-lags:])
-            weights = np.arange(1, lags + 1)
-            yhat = np.sum(recent * weights) / np.sum(weights)
-        else:
-            yhat = np.mean(history)
-
+        yhat = np.mean(history[-lags:])
         preds.append(yhat)
         history.append(yhat)
 
     preds = np.array(preds)
     actual = np.array(test)
 
-    actual_diff = np.diff(actual)
-    pred_diff = np.diff(preds)
+    # NEW: compare movement vs last actual
+    correct = 0
+    total = 0
 
-    actual_dir = np.sign(actual_diff)
-    pred_dir = np.sign(pred_diff)
+    prev_actual = train.iloc[-1]
 
-    min_len = min(len(actual_dir), len(pred_dir))
+    for i in range(len(actual)):
+        actual_move = actual[i] - prev_actual
+        pred_move = preds[i] - prev_actual
 
-    if min_len > 0:
-        directional_accuracy = np.mean(
-            actual_dir[:min_len] == pred_dir[:min_len]
-        ) * 100
-    else:
-        directional_accuracy = 0
+        if np.sign(actual_move) == np.sign(pred_move):
+            correct += 1
+
+        prev_actual = actual[i]
+        total += 1
+
+    directional_accuracy = (correct / total) * 100 if total > 0 else 0
 
     st.metric("🎯 Directional Accuracy (%)", f"{directional_accuracy:.2f}%")
 
     # -------------------------
-    # FUTURE FORECAST
+    # FORECAST FUTURE
     # -------------------------
     history = list(series)
     future_preds = []
 
     for _ in range(horizon):
-        if len(history) >= lags:
-            recent = np.array(history[-lags:])
-            weights = np.arange(1, lags + 1)
-            yhat = np.sum(recent * weights) / np.sum(weights)
-        else:
-            yhat = np.mean(history)
-
+        yhat = np.mean(history[-lags:])
         future_preds.append(yhat)
         history.append(yhat)
 
@@ -190,7 +173,6 @@ if generate:
 
     forecast_df_display = forecast_series.reset_index()
     forecast_df_display.columns = ["Date", "Forecast"]
-
     forecast_df_display.insert(0, "S.No", range(1, len(forecast_df_display) + 1))
 
     st.dataframe(forecast_df_display, use_container_width=True)
