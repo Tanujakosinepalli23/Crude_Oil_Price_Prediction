@@ -36,6 +36,7 @@ option = st.radio(
 
 df = None
 
+# Default dataset
 if option == "Use Default Dataset":
     DATA_PATH = Path("Crude oil.csv")
 
@@ -46,6 +47,7 @@ if option == "Use Default Dataset":
     df = pd.read_csv(DATA_PATH)
     st.success("✅ Default dataset loaded")
 
+# Upload dataset
 else:
     uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
 
@@ -66,7 +68,7 @@ try:
 
     series = df["Close/Last"].astype(float).ffill().bfill()
 except:
-    st.error("❌ CSV must contain 'Date' and 'Close/Last'")
+    st.error("❌ CSV must contain 'Date' and 'Close/Last' columns")
     st.stop()
 
 # -------------------------
@@ -95,16 +97,16 @@ with col2:
     generate = st.button("🚀 Generate Forecast")
 
 # -------------------------
-# FORECAST + ACCURACY
+# MAIN LOGIC
 # -------------------------
 if generate:
 
-    # ---- Train/Test Split for Accuracy ----
-    split_idx = int(len(series) * 0.8)
-    train = series[:split_idx]
-    test = series[split_idx:]
+    # -------------------------
+    # DIRECTIONAL ACCURACY (FIXED)
+    # -------------------------
+    train = series[:-horizon]
+    test = series[-horizon:]
 
-    # ---- Prediction for Accuracy ----
     history = list(train)
     preds = []
 
@@ -116,14 +118,18 @@ if generate:
     preds = np.array(preds)
     actual = np.array(test)
 
-    # ---- Directional Accuracy ----
     actual_diff = np.sign(np.diff(actual))
     pred_diff = np.sign(np.diff(preds))
 
     min_len = min(len(actual_diff), len(pred_diff))
-    directional_accuracy = np.mean(actual_diff[:min_len] == pred_diff[:min_len]) * 100
 
-    # ---- Display Accuracy ----
+    if min_len > 0:
+        directional_accuracy = np.mean(
+            actual_diff[:min_len] == pred_diff[:min_len]
+        ) * 100
+    else:
+        directional_accuracy = 0
+
     st.metric("🎯 Directional Accuracy (%)", f"{directional_accuracy:.2f}%")
 
     # -------------------------
@@ -137,7 +143,11 @@ if generate:
         future_preds.append(yhat)
         history.append(yhat)
 
-    future_index = pd.date_range(series.index[-1] + pd.Timedelta(days=1), periods=horizon)
+    future_index = pd.date_range(
+        series.index[-1] + pd.Timedelta(days=1),
+        periods=horizon
+    )
+
     forecast_series = pd.Series(future_preds, index=future_index)
 
     st.success("✅ Forecast generated successfully!")
@@ -153,14 +163,13 @@ if generate:
     st.line_chart(forecast_df)
 
     # -------------------------
-    # TABLE (FIXED INDEX)
+    # TABLE (INDEX STARTS FROM 1)
     # -------------------------
     st.subheader("📅 Forecast Data")
 
     forecast_df_display = forecast_series.reset_index()
     forecast_df_display.columns = ["Date", "Forecast"]
 
-    # Start index from 1
     forecast_df_display.index = forecast_df_display.index + 1
 
     st.dataframe(forecast_df_display, use_container_width=True)
