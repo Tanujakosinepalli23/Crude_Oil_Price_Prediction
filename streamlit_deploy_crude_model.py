@@ -1,150 +1,154 @@
+# streamlit_app.py
 import streamlit as st
 import pandas as pd
 import numpy as np
+from statsmodels.tsa.arima.model import ARIMA
 import matplotlib.pyplot as plt
-from pathlib import Path
-import warnings
-warnings.filterwarnings("ignore")
 
-# Statsmodels
-from statsmodels.tsa.ar_model import AutoReg
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+# ------------------------
+# 1. Page Config & Style
+# ------------------------
+st.set_page_config(page_title="Crude Oil Price Forecast", layout="wide")
 
-# 1. Load dataset
-DATA_PATH = Path("Crude oil.csv")
-df = pd.read_csv(DATA_PATH)
+# Custom CSS for background and style
+st.markdown("""
+    <style>
+        /* Background */
+        [data-testid="stAppViewContainer"] {
+            background: linear-gradient(135deg, #e3f2fd, #ffffff);
+            background-attachment: fixed;
+        }
+        /* Sidebar */
+        [data-testid="stSidebar"] {
+            background: linear-gradient(180deg, #bbdefb, #e3f2fd);
+        }
+        /* Titles */
+        h1, h2, h3 {
+            color: #0d47a1;
+        }
+        /* Success and info boxes */
+        .stSuccess, .stInfo {
+            border-radius: 10px;
+        }
+        /* DataFrame style */
+        .stDataFrame {
+            background-color: #fafafa;
+            border-radius: 10px;
+        }
+    </style>
+""", unsafe_allow_html=True)
 
-df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-df = df.sort_values("Date").reset_index(drop=True)
-df.index = pd.DatetimeIndex(df["Date"])
-target_col = "Close/Last"
+# ------------------------
+# 2. App Title
+# ------------------------
+st.title("🌍 Crude Oil Price Forecasting Dashboard")
+st.markdown("""
+This app forecasts **crude oil prices** using the **ARIMA(5,1,0)** model.  
+You can visualize historical data, generate future forecasts, and evaluate directional accuracy.
+""")
 
-series = df[target_col].astype(float).ffill().bfill()
+# ------------------------
+# 3. File Upload
+# ------------------------
+uploaded_file = st.file_uploader("📂 Upload your Crude Oil CSV file", type=["csv"])
 
-# Sidebar Controls
-st.sidebar.header("⚙️ Model Settings")
+if uploaded_file is not None:
+    # Load CSV
+    df = pd.read_csv(uploaded_file)
+    df.columns = df.columns.str.strip()
+    df.rename(columns={'Close/Last': 'Close'}, inplace=True)
+    df['Close'] = pd.to_numeric(df['Close'], errors='coerce')
+    df['Date'] = pd.to_datetime(df['Date'])
+    df.dropna(subset=['Close'], inplace=True)
+    df.set_index('Date', inplace=True)
+    df.sort_index(inplace=True)
+    
+    st.success("✅ Data loaded successfully!")
+    
+    # Show sample data
+    st.subheader("Historical Data Sample")
+    st.dataframe(df.tail(10))
+    
+    # ------------------------
+    # 4. Historical Visualization
+    # ------------------------
+    st.subheader("📊 Historical Closing Prices")
+    st.line_chart(df['Close'])
+    
+    # ------------------------
+    # 5. Forecasting Section
+    # ------------------------
+    st.subheader("🔮 Forecast Future Prices")
+    forecast_steps = st.slider("Select number of days to forecast", min_value=1, max_value=200, value=30)
+    
+    if st.button("🚀 Generate Forecast"):
+        with st.spinner("⏳ Fitting ARIMA model and generating forecast..."):
+            model = ARIMA(df['Close'], order=(5, 1, 0))
+            result = model.fit()
+            
+            forecast_result = result.get_forecast(steps=forecast_steps)
+            forecast_mean = forecast_result.predicted_mean
+            forecast_dates = pd.date_range(start=df.index[-1] + pd.Timedelta(days=1), periods=forecast_steps)
+            forecast_df = pd.DataFrame({'Date': forecast_dates, 'Predicted_Close': forecast_mean.values})
+            
+            # Plot forecast
+            st.subheader(f"📈 {forecast_steps}-Day Forecast")
+            fig, ax = plt.subplots(figsize=(12,6))
+            df['Close'][-200:].plot(ax=ax, label='Historical Price (Last 200 Days)')
+            forecast_df.set_index('Date')['Predicted_Close'].plot(ax=ax, label='Forecast', linestyle='--', color='red')
+            ax.set_xlabel('Date')
+            ax.set_ylabel('Price (USD)')
+            ax.legend()
+            ax.grid(True)
+            st.pyplot(fig)
+            
+            st.subheader("📋 Forecasted Prices Table")
+            st.dataframe(forecast_df)
+            
+            st.success("🎯 Forecast generated successfully!")
+    
+    # ------------------------
+    # 6. Directional Accuracy Section
+    # ------------------------
+    if st.checkbox("📏 Show Directional Accuracy (Test Data)"):
+        forecast_steps_test = min(forecast_steps, len(df) - 1)
+        
+        train = df['Close'][:-forecast_steps_test]
+        test = df['Close'][-forecast_steps_test:]
+        
+        with st.spinner("🔍 Calculating directional accuracy..."):
+            model_test = ARIMA(train, order=(5, 1, 0))
+            result_test = model_test.fit()
+            
+            forecast_test = result_test.get_forecast(steps=forecast_steps_test).predicted_mean
+            forecast_test.index = test.index
+            
+            # Compute directional accuracy
+            actual_diff = test.diff().dropna()
+            pred_diff = forecast_test.diff().dropna()
+            directional_accuracy = np.mean(np.sign(actual_diff) == np.sign(pred_diff)) * 100
+            
+            st.metric("Directional Accuracy (%)", f"{directional_accuracy:.2f}%")
+            
+            # Plot Actual vs Predicted
+            fig, ax = plt.subplots(figsize=(10,5))
+            ax.plot(test.index, test.values, label='Actual Prices', color='blue')
+            ax.plot(forecast_test.index, forecast_test.values, label='Predicted Prices', color='red', linestyle='--')
+            ax.set_title(f"Directional Accuracy Comparison ({forecast_steps_test} Days)")
+            ax.legend()
+            ax.grid(True)
+            st.pyplot(fig)
+            
+            # Actual vs Predicted Table
+            st.subheader("📊 Actual vs Predicted Price Comparison")
+            comparison_df = pd.DataFrame({
+                'Date': test.index,
+                'Actual_Price': test.values,
+                'Predicted_Price': forecast_test.values
+            }).reset_index(drop=True)
+            
+            st.dataframe(comparison_df)
+            st.success("✅ Directional accuracy test completed!")
 
-lags = st.sidebar.slider("Number of Lags", 5, 30, 14)
-split_ratio = st.sidebar.slider("Train/Test Split (%)", 60, 95, 80)
-horizon = st.sidebar.slider("Forecast Horizon (days)", 5, 60, 30)
-
-# Train/Test split
-split_idx = int(len(series) * (split_ratio/100))
-train, test = series.iloc[:split_idx], series.iloc[split_idx:]
-
-# Evaluation function
-def evaluate(y_true, y_pred):
-    y_pred = np.array(y_pred).flatten()
-    y_true = np.array(y_true).flatten()
-    min_len = min(len(y_true), len(y_pred))
-    y_true, y_pred = y_true[:min_len], y_pred[:min_len]
-
-    mae = mean_absolute_error(y_true, y_pred)
-    rmse = mean_squared_error(y_true, y_pred) ** 0.5
-    mape = np.mean(np.abs((y_true - y_pred) / np.where(y_true==0, 1e-8, y_true))) * 100
-    r2 = r2_score(y_true, y_pred)
-
-    return {"MAE": mae, "RMSE": rmse, "MAPE (%)": mape, "R2": r2}
-
-st.title("⛽ Crude Oil Price Forecasting App")
-st.markdown("This app forecasts crude oil prices using AutoRegressive models.")
-
-# -------------------------
-# Fit AutoReg on train
-# -------------------------
-model = AutoReg(train, lags=lags, old_names=False).fit()
-
-# -------------------------
-# Manual one-step-ahead walk-forward predictions on test
-# -------------------------
-params = model.params.copy()
-intercept = 0.0
-if 'const' in params.index:
-    intercept = float(params['const'])
-    ar_coefs = params.drop('const').values
-elif 'Intercept' in params.index:
-    intercept = float(params['Intercept'])
-    ar_coefs = params.drop('Intercept').values
 else:
-    ar_coefs = params.values
-
-ar_coefs = np.asarray(ar_coefs, dtype=float)
-p = len(ar_coefs)
-
-test_preds = []
-for t in range(len(test)):
-    if t == 0:
-        hist = train.values
-    else:
-        hist = np.concatenate([train.values, test.values[:t]])
-    k = min(p, len(hist))
-    yhat = intercept
-    for i in range(k):
-        yhat += ar_coefs[i] * hist[-(i+1)]
-    test_preds.append(yhat)
-
-test_preds = pd.Series(test_preds, index=test.index)
-metrics = evaluate(test, test_preds)
-
-# Metrics Display
-st.subheader("📊 Model Performance on Test Data")
-st.write(pd.DataFrame([metrics]))
-
-# Actual vs Predicted Plot (fixed)
-st.subheader("📈 Actual vs Predicted (Test set)")
-fig, ax = plt.subplots(figsize=(12,6))
-ax.plot(train.index, train, label="Train", linewidth=1)
-ax.plot(test.index, test, label="Test (Actual)", color="black", linewidth=1)
-ax.plot(test_preds.index, test_preds.values, label="Predicted (one-step)", color="red", linewidth=1)
-ax.set_title(f"AutoReg(lags={lags}) - Test Predictions (one-step-ahead)")
-ax.set_xlabel("Date")
-ax.set_ylabel("Price")
-ax.legend()
-st.pyplot(fig)
-
-# -------------------------
-# Future Forecast (recursive)
-# -------------------------
-model_full = AutoReg(series, lags=lags, old_names=False).fit()
-params_full = model_full.params.copy()
-intercept_full = float(params_full.get('const', params_full.get('Intercept', 0.0)))
-ar_coefs_full = params_full.drop(labels=[k for k in params_full.index if k.lower() in ('const','intercept')]).values
-ar_coefs_full = np.asarray(ar_coefs_full, dtype=float)
-p_full = len(ar_coefs_full)
-
-history = list(series.values)
-future_preds = []
-for _ in range(horizon):
-    k = min(p_full, len(history))
-    yhat = intercept_full
-    for i in range(k):
-        yhat += ar_coefs_full[i] * history[-(i+1)]
-    future_preds.append(yhat)
-    history.append(yhat)
-
-last_date = series.index[-1]
-freq = pd.infer_freq(series.index)
-if freq is None:
-    future_index = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=horizon, freq='D')
-else:
-    future_index = pd.date_range(start=last_date + pd.tseries.frequencies.to_offset(freq), periods=horizon, freq=freq)
-
-forecast_series = pd.Series(future_preds, index=future_index)
-
-st.subheader(f"🔮 Forecast for next {horizon} days")
-fig2, ax2 = plt.subplots(figsize=(12,6))
-ax2.plot(series.index[-200:], series.values[-200:], label="Recent Actual")
-ax2.plot(forecast_series.index, forecast_series.values, label="Forecast", color="orange")
-ax2.set_title(f"AutoReg(lags={lags}) — {horizon}-Day Forecast")
-ax2.set_xlabel("Date")
-ax2.set_ylabel("Price")
-ax2.legend()
-st.pyplot(fig2)
-
-# Forecast Table
-st.subheader("📅 Forecasted Values")
-st.dataframe(forecast_series.reset_index().rename(columns={"index":"Date",0:"Forecasted Price"}))
-
-# Download Option
-csv = forecast_series.to_csv().encode("utf-8")
-st.download_button("⬇️ Download Forecast", csv, "forecast.csv", "text/csv")
+    st.info("📥 Please upload a CSV file to begin. The file should have columns **'Date'** and **'Close/Last'**.")
