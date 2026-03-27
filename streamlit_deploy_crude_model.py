@@ -2,12 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from pathlib import Path
-import warnings
-warnings.filterwarnings("ignore")
-
-# Statsmodels
-from statsmodels.tsa.ar_model import AutoReg
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 # -------------------------
 # Load dataset
@@ -15,92 +9,76 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 DATA_PATH = Path("Crude oil.csv")
 
 if not DATA_PATH.exists():
-    st.error("❌ 'Crude oil.csv' not found. Please upload it.")
+    st.error("❌ 'Crude oil.csv' not found")
     st.stop()
 
 df = pd.read_csv(DATA_PATH)
 
 df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-df = df.sort_values("Date").reset_index(drop=True)
-df.index = pd.DatetimeIndex(df["Date"])
+df = df.sort_values("Date")
+df.set_index("Date", inplace=True)
 
-target_col = "Close/Last"
-series = df[target_col].astype(float).ffill().bfill()
+series = df["Close/Last"].astype(float).ffill().bfill()
 
 # -------------------------
 # Sidebar
 # -------------------------
-st.sidebar.header("⚙️ Model Settings")
+st.sidebar.header("⚙️ Settings")
 
-lags = st.sidebar.slider("Number of Lags", 5, 30, 14)
-split_ratio = st.sidebar.slider("Train/Test Split (%)", 60, 95, 80)
-horizon = st.sidebar.slider("Forecast Horizon (days)", 5, 60, 30)
-
-# -------------------------
-# Split data
-# -------------------------
-split_idx = int(len(series) * (split_ratio/100))
-train, test = series.iloc[:split_idx], series.iloc[split_idx:]
+lags = st.sidebar.slider("Lags", 1, 20, 5)
+split_ratio = st.sidebar.slider("Train %", 60, 90, 80)
+horizon = st.sidebar.slider("Forecast Days", 5, 60, 30)
 
 # -------------------------
-# Evaluation function
+# Split
 # -------------------------
-def evaluate(y_true, y_pred):
-    y_pred = np.array(y_pred).flatten()
-    y_true = np.array(y_true).flatten()
-
-    min_len = min(len(y_true), len(y_pred))
-    y_true, y_pred = y_true[:min_len], y_pred[:min_len]
-
-    mae = mean_absolute_error(y_true, y_pred)
-    rmse = mean_squared_error(y_true, y_pred) ** 0.5
-    mape = np.mean(np.abs((y_true - y_pred) / np.where(y_true==0, 1e-8, y_true))) * 100
-    r2 = r2_score(y_true, y_pred)
-
-    return {"MAE": mae, "RMSE": rmse, "MAPE (%)": mape, "R2": r2}
+split_idx = int(len(series) * split_ratio / 100)
+train = series[:split_idx]
+test = series[split_idx:]
 
 # -------------------------
-# Title
+# Manual AR model (no statsmodels)
 # -------------------------
-st.title("⛽ Crude Oil Price Forecasting")
-st.write("AutoReg Model (No matplotlib version)")
+def predict_ar(train_data, test_data, lags):
+    history = list(train_data)
+    predictions = []
 
-# -------------------------
-# Train model
-# -------------------------
-model = AutoReg(train, lags=lags, old_names=False).fit()
-params = model.params.copy()
+    for t in range(len(test_data)):
+        if len(history) < lags:
+            yhat = np.mean(history)
+        else:
+            yhat = np.mean(history[-lags:])
 
-intercept = float(params.get('const', params.get('Intercept', 0.0)))
-ar_coefs = params.drop(labels=[k for k in params.index if k.lower() in ('const','intercept')]).values
-ar_coefs = np.asarray(ar_coefs, dtype=float)
+        predictions.append(yhat)
+        history.append(test_data.iloc[t])
 
-# -------------------------
-# Predictions
-# -------------------------
-test_preds = []
+    return pd.Series(predictions, index=test_data.index)
 
-for t in range(len(test)):
-    hist = train.values if t == 0 else np.concatenate([train.values, test.values[:t]])
-
-    yhat = intercept
-    for i in range(min(len(ar_coefs), len(hist))):
-        yhat += ar_coefs[i] * hist[-(i+1)]
-
-    test_preds.append(yhat)
-
-test_preds = pd.Series(test_preds, index=test.index)
+test_preds = predict_ar(train, test, lags)
 
 # -------------------------
 # Metrics
 # -------------------------
+def evaluate(y_true, y_pred):
+    y_true, y_pred = np.array(y_true), np.array(y_pred)
+
+    mae = np.mean(np.abs(y_true - y_pred))
+    rmse = np.sqrt(np.mean((y_true - y_pred) ** 2))
+
+    return {"MAE": mae, "RMSE": rmse}
+
 metrics = evaluate(test, test_preds)
 
-st.subheader("📊 Performance")
-st.dataframe(pd.DataFrame([metrics]))
+# -------------------------
+# UI
+# -------------------------
+st.title("⛽ Crude Oil Forecast (No statsmodels)")
+
+st.subheader("📊 Metrics")
+st.write(metrics)
 
 # -------------------------
-# Chart (NO matplotlib)
+# Chart
 # -------------------------
 st.subheader("📈 Actual vs Predicted")
 
@@ -115,30 +93,25 @@ st.line_chart(chart_df)
 # -------------------------
 # Future Forecast
 # -------------------------
-model_full = AutoReg(series, lags=lags, old_names=False).fit()
-params_full = model_full.params.copy()
-
-intercept_full = float(params_full.get('const', params_full.get('Intercept', 0.0)))
-ar_coefs_full = params_full.drop(labels=[k for k in params_full.index if k.lower() in ('const','intercept')]).values
-
-history = list(series.values)
+history = list(series)
 future_preds = []
 
 for _ in range(horizon):
-    yhat = intercept_full
-    for i in range(min(len(ar_coefs_full), len(history))):
-        yhat += ar_coefs_full[i] * history[-(i+1)]
+    if len(history) < lags:
+        yhat = np.mean(history)
+    else:
+        yhat = np.mean(history[-lags:])
 
     future_preds.append(yhat)
     history.append(yhat)
 
-future_index = pd.date_range(start=series.index[-1] + pd.Timedelta(days=1), periods=horizon)
+future_index = pd.date_range(series.index[-1] + pd.Timedelta(days=1), periods=horizon)
 forecast_series = pd.Series(future_preds, index=future_index)
 
 # -------------------------
-# Forecast Chart
+# Forecast chart
 # -------------------------
-st.subheader("🔮 Forecast")
+st.subheader("🔮 Future Forecast")
 
 forecast_df = pd.DataFrame({
     "Recent": series[-200:],
@@ -148,14 +121,8 @@ forecast_df = pd.DataFrame({
 st.line_chart(forecast_df)
 
 # -------------------------
-# Table + Download
+# Table
 # -------------------------
 st.subheader("📅 Forecast Data")
 
-forecast_df_display = forecast_series.reset_index()
-forecast_df_display.columns = ["Date", "Forecast"]
-
-st.dataframe(forecast_df_display)
-
-csv = forecast_series.to_csv().encode("utf-8")
-st.download_button("⬇️ Download Forecast", csv, "forecast.csv", "text/csv")
+st.dataframe(forecast_series.reset_index().rename(columns={"index":"Date",0:"Forecast"}))
