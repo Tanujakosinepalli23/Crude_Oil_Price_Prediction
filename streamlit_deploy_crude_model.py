@@ -19,13 +19,13 @@ st.title("🌍 Crude Oil Price Forecasting Dashboard")
 
 st.write(
 """
-This app forecasts crude oil prices using a simple time series model.  
+This app forecasts crude oil prices using a time series model.  
 You can use the default dataset or upload your own CSV file.
 """
 )
 
 # -------------------------
-# DATA SOURCE
+# DATA SOURCE SELECTION
 # -------------------------
 st.subheader("📂 Data Source")
 
@@ -63,7 +63,7 @@ else:
         st.stop()
 
 # -------------------------
-# PREPROCESS
+# PREPROCESSING
 # -------------------------
 try:
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
@@ -104,7 +104,6 @@ with col2:
 # FORECAST LOGIC
 # -------------------------
 if generate:
-
     history = list(series)
     future_preds = []
 
@@ -133,14 +132,15 @@ if generate:
     st.line_chart(forecast_df)
 
     # -------------------------
-    # TABLE (INDEX FROM 1)
+    # TABLE (S.NO + START FROM 1)
     # -------------------------
     st.subheader("📅 Forecast Data")
 
     forecast_df_display = forecast_series.reset_index()
     forecast_df_display.columns = ["Date", "Forecast"]
 
-    forecast_df_display.index = forecast_df_display.index + 1
+    # Add Serial Number column
+    forecast_df_display.insert(0, "S.No", range(1, len(forecast_df_display) + 1))
 
     st.dataframe(forecast_df_display, use_container_width=True)
 
