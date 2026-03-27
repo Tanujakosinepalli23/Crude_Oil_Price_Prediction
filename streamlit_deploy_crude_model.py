@@ -19,7 +19,7 @@ st.title("🌍 Crude Oil Price Forecasting Dashboard")
 
 st.write(
 """
-This app forecasts crude oil prices using a time series model.  
+This app forecasts crude oil prices using a simple time series model.  
 You can use the default dataset or upload your own CSV file.
 """
 )
@@ -101,45 +101,10 @@ with col2:
     generate = st.button("🚀 Generate Forecast")
 
 # -------------------------
-# MAIN LOGIC
+# FORECAST LOGIC
 # -------------------------
 if generate:
 
-    # -------------------------
-    # DIRECTIONAL ACCURACY (FIXED & DYNAMIC)
-    # -------------------------
-    train = series[:-horizon]
-    test = series[-horizon:]
-
-    history = list(train)
-    preds = []
-
-    # Recursive prediction (NO leakage)
-    for _ in range(len(test)):
-        yhat = np.mean(history[-5:])
-        preds.append(yhat)
-        history.append(yhat)
-
-    preds = np.array(preds)
-    actual = np.array(test)
-
-    actual_diff = np.sign(np.diff(actual))
-    pred_diff = np.sign(np.diff(preds))
-
-    min_len = min(len(actual_diff), len(pred_diff))
-
-    if min_len > 0:
-        directional_accuracy = np.mean(
-            actual_diff[:min_len] == pred_diff[:min_len]
-        ) * 100
-    else:
-        directional_accuracy = 0
-
-    st.metric("🎯 Directional Accuracy (%)", f"{directional_accuracy:.2f}%")
-
-    # -------------------------
-    # FUTURE FORECAST
-    # -------------------------
     history = list(series)
     future_preds = []
 
@@ -168,7 +133,7 @@ if generate:
     st.line_chart(forecast_df)
 
     # -------------------------
-    # TABLE (INDEX STARTS FROM 1)
+    # TABLE (INDEX FROM 1)
     # -------------------------
     st.subheader("📅 Forecast Data")
 
