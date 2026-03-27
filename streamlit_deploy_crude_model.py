@@ -25,7 +25,7 @@ You can use the default dataset or upload your own CSV file.
 )
 
 # -------------------------
-# DATA SOURCE SELECTION
+# DATA SOURCE
 # -------------------------
 st.subheader("📂 Data Source")
 
@@ -63,7 +63,7 @@ else:
         st.stop()
 
 # -------------------------
-# PREPROCESSING
+# PREPROCESS
 # -------------------------
 try:
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
@@ -72,7 +72,7 @@ try:
 
     series = df["Close/Last"].astype(float).ffill().bfill()
 except:
-    st.error("❌ CSV must contain 'Date' and 'Close/Last' columns")
+    st.error("❌ CSV must contain 'Date' and 'Close/Last'")
     st.stop()
 
 # -------------------------
@@ -101,14 +101,59 @@ with col2:
     generate = st.button("🚀 Generate Forecast")
 
 # -------------------------
-# FORECAST LOGIC
+# MAIN LOGIC
 # -------------------------
 if generate:
+
+    lags = 5  # important for sensitivity
+
+    # -------------------------
+    # DIRECTIONAL ACCURACY (FIXED)
+    # -------------------------
+    train = series[:-horizon]
+    test = series[-horizon:]
+
+    history = list(train)
+    preds = []
+
+    for _ in range(len(test)):
+        if len(history) >= lags:
+            yhat = np.mean(history[-lags:])
+        else:
+            yhat = np.mean(history)
+
+        preds.append(yhat)
+        history.append(yhat)  # recursive prediction
+
+    preds = np.array(preds)
+    actual = np.array(test)
+
+    actual_diff = np.sign(np.diff(actual))
+    pred_diff = np.sign(np.diff(preds))
+
+    min_len = min(len(actual_diff), len(pred_diff))
+
+    if min_len > 0:
+        directional_accuracy = np.mean(
+            actual_diff[:min_len] == pred_diff[:min_len]
+        ) * 100
+    else:
+        directional_accuracy = 0
+
+    st.metric("🎯 Directional Accuracy (%)", f"{directional_accuracy:.2f}%")
+
+    # -------------------------
+    # FUTURE FORECAST
+    # -------------------------
     history = list(series)
     future_preds = []
 
     for _ in range(horizon):
-        yhat = np.mean(history[-5:])
+        if len(history) >= lags:
+            yhat = np.mean(history[-lags:])
+        else:
+            yhat = np.mean(history)
+
         future_preds.append(yhat)
         history.append(yhat)
 
@@ -132,14 +177,13 @@ if generate:
     st.line_chart(forecast_df)
 
     # -------------------------
-    # TABLE (S.NO + START FROM 1)
+    # TABLE (S.NO)
     # -------------------------
     st.subheader("📅 Forecast Data")
 
     forecast_df_display = forecast_series.reset_index()
     forecast_df_display.columns = ["Date", "Forecast"]
 
-    # Add Serial Number column
     forecast_df_display.insert(0, "S.No", range(1, len(forecast_df_display) + 1))
 
     st.dataframe(forecast_df_display, use_container_width=True)
