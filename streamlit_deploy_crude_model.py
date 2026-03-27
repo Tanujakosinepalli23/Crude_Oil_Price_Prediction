@@ -7,74 +7,16 @@ from pathlib import Path
 # Page Config
 # -------------------------
 st.set_page_config(
-    page_title="Crude Oil Analytics",
+    page_title="Crude Oil Forecast",
     page_icon="⛽",
     layout="wide"
 )
 
 # -------------------------
-# PREMIUM CSS DESIGN
+# Header
 # -------------------------
-st.markdown("""
-<style>
-/* Background */
-body {
-    background-color: #0f172a;
-}
-
-/* Main Title */
-.main-title {
-    font-size: 42px;
-    font-weight: 700;
-    color: #f8fafc;
-}
-
-/* Subtitle */
-.subtitle {
-    color: #94a3b8;
-    font-size: 16px;
-    margin-bottom: 25px;
-}
-
-/* KPI Cards */
-.card {
-    background: linear-gradient(135deg, #1e293b, #0f172a);
-    padding: 25px;
-    border-radius: 16px;
-    box-shadow: 0px 4px 20px rgba(0,0,0,0.4);
-    text-align: center;
-}
-
-.card h3 {
-    color: #94a3b8;
-    font-size: 14px;
-}
-
-.card h1 {
-    color: #38bdf8;
-    font-size: 32px;
-}
-
-/* Section Titles */
-.section {
-    font-size: 22px;
-    color: #f1f5f9;
-    margin-top: 30px;
-    margin-bottom: 10px;
-}
-
-/* Sidebar */
-[data-testid="stSidebar"] {
-    background-color: #020617;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# -------------------------
-# HEADER
-# -------------------------
-st.markdown('<div class="main-title">⛽ Crude Oil Forecast Dashboard</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">Advanced Time Series Forecasting & Analytics</div>', unsafe_allow_html=True)
+st.title("⛽ Crude Oil Price Forecasting")
+st.caption("Time Series Forecasting Dashboard")
 
 # -------------------------
 # Load Data
@@ -82,11 +24,10 @@ st.markdown('<div class="subtitle">Advanced Time Series Forecasting & Analytics<
 DATA_PATH = Path("Crude oil.csv")
 
 if not DATA_PATH.exists():
-    st.error("Dataset not found. Upload 'Crude oil.csv'")
+    st.error("Upload 'Crude oil.csv' to continue")
     st.stop()
 
 df = pd.read_csv(DATA_PATH)
-
 df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
 df = df.sort_values("Date")
 df.set_index("Date", inplace=True)
@@ -94,23 +35,23 @@ df.set_index("Date", inplace=True)
 series = df["Close/Last"].astype(float).ffill().bfill()
 
 # -------------------------
-# SIDEBAR
+# Sidebar Controls
 # -------------------------
-st.sidebar.title("⚙️ Controls")
-
-lags = st.sidebar.slider("Lag Window", 1, 20, 5)
-split_ratio = st.sidebar.slider("Training Size (%)", 60, 90, 80)
-horizon = st.sidebar.slider("Forecast Days", 5, 60, 30)
+with st.sidebar:
+    st.header("⚙️ Settings")
+    lags = st.slider("Lag Window", 1, 20, 5)
+    split_ratio = st.slider("Train Size (%)", 60, 90, 80)
+    horizon = st.slider("Forecast Days", 5, 60, 30)
 
 # -------------------------
-# SPLIT
+# Split Data
 # -------------------------
 split_idx = int(len(series) * split_ratio / 100)
 train = series[:split_idx]
 test = series[split_idx:]
 
 # -------------------------
-# MODEL
+# Model
 # -------------------------
 def predict_ar(train_data, test_data, lags):
     history = list(train_data)
@@ -126,71 +67,72 @@ def predict_ar(train_data, test_data, lags):
 test_preds = predict_ar(train, test, lags)
 
 # -------------------------
-# METRICS
+# Metrics
 # -------------------------
 mae = np.mean(np.abs(test - test_preds))
 rmse = np.sqrt(np.mean((test - test_preds) ** 2))
 
 # -------------------------
-# KPI SECTION
+# TABS (Professional Layout)
 # -------------------------
-col1, col2, col3 = st.columns(3)
-
-col1.markdown(f'<div class="card"><h3>MAE</h3><h1>{mae:.2f}</h1></div>', unsafe_allow_html=True)
-col2.markdown(f'<div class="card"><h3>RMSE</h3><h1>{rmse:.2f}</h1></div>', unsafe_allow_html=True)
-col3.markdown(f'<div class="card"><h3>Data Points</h3><h1>{len(series)}</h1></div>', unsafe_allow_html=True)
+tab1, tab2, tab3 = st.tabs(["📊 Overview", "📈 Model", "🔮 Forecast"])
 
 # -------------------------
-# PERFORMANCE CHART
+# TAB 1 - Overview
 # -------------------------
-st.markdown('<div class="section">📊 Model Performance</div>', unsafe_allow_html=True)
+with tab1:
+    col1, col2, col3 = st.columns(3)
 
-chart_df = pd.DataFrame({
-    "Train": train,
-    "Actual": test,
-    "Predicted": test_preds
-})
+    col1.metric("MAE", f"{mae:.2f}")
+    col2.metric("RMSE", f"{rmse:.2f}")
+    col3.metric("Total Records", len(series))
 
-st.line_chart(chart_df, height=420)
-
-# -------------------------
-# FORECAST
-# -------------------------
-history = list(series)
-future_preds = []
-
-for _ in range(horizon):
-    yhat = np.mean(history[-lags:]) if len(history) >= lags else np.mean(history)
-    future_preds.append(yhat)
-    history.append(yhat)
-
-future_index = pd.date_range(series.index[-1] + pd.Timedelta(days=1), periods=horizon)
-forecast_series = pd.Series(future_preds, index=future_index)
+    st.markdown("### Recent Price Trend")
+    st.line_chart(series.tail(200), height=350)
 
 # -------------------------
-# FORECAST CHART
+# TAB 2 - Model Performance
 # -------------------------
-st.markdown('<div class="section">🔮 Future Forecast</div>', unsafe_allow_html=True)
+with tab2:
+    st.markdown("### Actual vs Predicted")
 
-forecast_df = pd.DataFrame({
-    "Recent": series[-200:],
-    "Forecast": forecast_series
-})
+    chart_df = pd.DataFrame({
+        "Actual": test,
+        "Predicted": test_preds
+    })
 
-st.line_chart(forecast_df, height=420)
+    st.line_chart(chart_df, height=400)
 
-# -------------------------
-# TABLE
-# -------------------------
-st.markdown('<div class="section">📅 Forecast Data</div>', unsafe_allow_html=True)
-
-st.dataframe(
-    forecast_series.reset_index().rename(columns={"index":"Date",0:"Forecast"}),
-    use_container_width=True
-)
+    st.dataframe(chart_df.tail(50), use_container_width=True)
 
 # -------------------------
-# DOWNLOAD
+# TAB 3 - Forecast
 # -------------------------
-csv = forecast_series.to_csv().encode("utf-8")
-st.download_button("⬇️ Download Forecast", csv, "forecast.csv", "text/csv")
+with tab3:
+    history = list(series)
+    future_preds = []
+
+    for _ in range(horizon):
+        yhat = np.mean(history[-lags:]) if len(history) >= lags else np.mean(history)
+        future_preds.append(yhat)
+        history.append(yhat)
+
+    future_index = pd.date_range(series.index[-1] + pd.Timedelta(days=1), periods=horizon)
+    forecast_series = pd.Series(future_preds, index=future_index)
+
+    st.markdown("### Future Forecast")
+
+    forecast_df = pd.DataFrame({
+        "Recent": series[-200:],
+        "Forecast": forecast_series
+    })
+
+    st.line_chart(forecast_df, height=400)
+
+    st.dataframe(
+        forecast_series.reset_index().rename(columns={"index":"Date",0:"Forecast"}),
+        use_container_width=True
+    )
+
+    csv = forecast_series.to_csv().encode("utf-8")
+    st.download_button("Download Forecast", csv, "forecast.csv")
